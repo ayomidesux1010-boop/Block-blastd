@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Block Blast Real Pro</title>
+    <style>
+        :root { --bg: #050a14; --cell: #1a2233; --neon: #00f2ff; }
+        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; }
+        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 22px; font-weight: bold; color: var(--neon); text-shadow: 0 0 10px var(--neon); }
+        canvas { background: var(--cell); border-radius: 12px; touch-action: none; box-shadow: 0 0 25px rgba(0,0,0,0.6); }
+        #ad-bar { position: fixed; bottom: 0; width: 100%; height: 50px; background: #000; color: #555; font-size: 10px; display: flex; align-items: center; justify-content: center; border-top: 1px solid #222; }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <div>BEST: <span id="best">0</span></div>
+        <div>SCORE: <span id="score">0</span></div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ad-bar">BANNER ID: ca-app-pub-9862002985603972/9278024171</div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const bestEl = document.getElementById('best');
+
+        let score = 0;
+        let bestScore = localStorage.getItem('blockBlastBest') || 0;
+        bestEl.innerText = bestScore;
+
+        const gridRes = 8;
+        let cellSize, boardSize, boardX;
+        let board = Array(gridRes).fill().map(() => Array(gridRes).fill(0));
+
+        function init() {
+            boardSize = Math.min(window.innerWidth - 30, 420);
+            cellSize = boardSize / gridRes;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            boardX = (canvas.width - boardSize) / 2;
+            spawnDock();
+            requestAnimationFrame(gameLoop);
+        }
+
+        const SHAPES = [
+            { map: [[1,1],[1,1]], color: '#00f2ff' },
+            { map: [[1,1,1,1]], color: '#a855f7' },
+            { map: [[1,1,1],[0,1,0]], color: '#ec4899' },
+            { map: [[1,1,0],[0,1,1]], color: '#22c55e' }
+        ];
+
+        let dock = [];
+        let activeP = null;
+        let dragX = 0, dragY = 0;
+
+        function spawnDock() {
+            dock = [0,1,2].map(i => {
+                let s = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+                return { ...s, x: (canvas.width/4)*(i+1) - 30, y: boardSize + 80, ox: (canvas.width/4)*(i+1) - 30, oy: boardSize + 80, active: true };
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw Grid
+            for(let r=0; r<gridRes; r++) {
+                for(let c=0; c<gridRes; c++) {
+                    ctx.fillStyle = board[r][c] || '#0f172a';
+                    ctx.beginPath();
+                    ctx.roundRect(boardX + c*cellSize + 2, r*cellSize + 2, cellSize - 4, cellSize - 4, 8);
+                    ctx.fill();
+                }
+            }
+
+            // Ghost Preview
+            if (activeP) {
+                const gc = Math.round((activeP.x - boardX) / cellSize);
+                const gr = Math.round(activeP.y / cellSize);
+                if (canPlace(activeP.map, gr, gc)) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+                    activeP.map.forEach((row, ri) => row.forEach((v, ci) => {
+                        if(v) ctx.fillRect(boardX + (gc+ci)*cellSize + 4, (gr+ri)*cellSize + 4, cellSize-8, cellSize-8);
+                    }));
+                }
+            }
+
+            // Dock Pieces
+            dock.forEach(p => {
+                if(!p.active || p === activeP) return;
+                ctx.fillStyle = p.color;
+                const s = cellSize * 0.55;
+                p.map.forEach((row, ri) => row.forEach((v, ci) => {
+                    if(v) { ctx.beginPath(); ctx.roundRect(p.x + ci*s, p.y + ri*s, s-2, s-2, 6); ctx.fill(); }
+                }));
+            });
+
+            // The Water Flow Drag
+            if (activeP) {
+                ctx.shadowBlur = 15; ctx.shadowColor = activeP.color;
+                ctx.fillStyle = activeP.color;
+                activeP.map.forEach((row, ri) => row.forEach((v, ci) => {
+                    if(v) { ctx.beginPath(); ctx.roundRect(activeP.x + ci*cellSize, activeP.y + ri*cellSize, cellSize-2, cellSize-2, 8); ctx.fill(); }
+                }));
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        canvas.addEventListener('touchstart', e => {
+            const tx = e.touches[0].clientX;
+            const ty = e.touches[0].clientY;
+            dock.forEach(p => {
+                if(p.active && tx > p.x - 30 && tx < p.x + 90 && ty > p.y - 30 && ty < p.y + 90) {
+                    activeP = p;
+                    dragX = tx - p.x; dragY = ty - p.y;
+                }
+            });
+        });
+
+        canvas.addEventListener('touchmove', e => {
+            if(!activeP) return;
+            e.preventDefault();
+            activeP.x = e.touches[0].clientX - dragX;
+            activeP.y = e.touches[0].clientY - dragY;
+        }, {passive: false});
+
+        canvas.addEventListener('touchend', () => {
+            if(!activeP) return;
+            const gc = Math.round((activeP.x - boardX) / cellSize);
+            const gr = Math.round(activeP.y / cellSize);
+            
+            if(canPlace(activeP.map, gr, gc)) {
+                place(activeP.map, gr, gc, activeP.color);
+                activeP.active = false;
+                if(dock.every(d => !d.active)) spawnDock();
+                checkLines();
+            } else {
+                activeP.x = activeP.ox; activeP.y = activeP.oy;
+            }
+            activeP = null;
+        });
+
+        function canPlace(map, r, c) {
+            return map.every((row, ri) => row.every((v, ci) => {
+                if(!v) return true;
+                let nr = r + ri, nc = c + ci;
+                return nr>=0 && nr<gridRes && nc>=0 && nc<gridRes && !board[nr][nc];
+            }));
+        }
+
+        function place(map, r, c, col) {
+            map.forEach((row, ri) => row.forEach((v, ci) => {
+                if(v) board[r+ri][c+ci] = col;
+            }));
+            score += 10;
+            scoreEl.innerText = score;
+            if(score > bestScore) {
+                bestScore = score;
+                bestEl.innerText = bestScore;
+                localStorage.setItem('blockBlastBest', bestScore);
+            }
+        }
+
+        function checkLines() {
+            let lines = 0;
+            let rowsToClear = [], colsToClear = [];
+            for(let r=0; r<gridRes; r++) if(board[r].every(v => v !== 0)) rowsToClear.push(r);
+            for(let c=0; c<gridRes; c++) if(board.every(r => r[c] !== 0)) colsToClear.push(c);
+            
+            rowsToClear.forEach(r => board[r] = Array(gridRes).fill(0));
+            colsToClear.forEach(c => board.forEach(r => r[c] = 0));
+            
+            if(rowsToClear.length > 0 || colsToClear.length > 0) {
+                score += (rowsToClear.length + colsToClear.length) * 50;
+                scoreEl.innerText = score;
+            }
+        }
+
+        function gameLoop() { draw(); requestAnimationFrame(gameLoop); }
+        init();
+    </script>
+</body>
+</html>
