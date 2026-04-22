@@ -3,60 +3,101 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Block Blast Pro</title>
+    <title>Block Blast Pro Elite + Audio</title>
     <style>
-        body { background: #080f1a; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; }
-        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 24px; font-weight: 900; letter-spacing: 1px; }
-        canvas { background: #111b2d; border-radius: 15px; touch-action: none; transition: transform 0.1s; }
-        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
-        .btn { width: 260px; padding: 18px; margin: 10px; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 rgba(0,0,0,0.3); }
-        #revive-btn { background: #22c55e; color: white; }
-        #restart-btn { background: #3b82f6; color: white; }
-        .shake { animation: shake 0.2s; }
-        @keyframes shake { 0% { transform: translate(2px, 2px); } 50% { transform: translate(-2px, -2px); } 100% { transform: translate(0); } }
+        body { background: #050a14; color: white; font-family: 'Arial Black', sans-serif; margin: 0; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; }
+        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 20px; z-index: 10; }
+        #audio-controls { position: fixed; bottom: 80px; right: 20px; background: rgba(255,255,255,0.1); padding: 10px; border-radius: 50%; cursor: pointer; z-index: 101; }
+        canvas { background: #0f172a; border-radius: 12px; touch-action: none; box-shadow: 0 0 30px rgba(0,0,0,0.8); }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+        .btn { width: 260px; padding: 18px; margin: 10px; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; text-transform: uppercase; cursor: pointer; }
+        #revive-btn { background: #22c55e; color: white; box-shadow: 0 5px 0 #166534; }
+        #restart-btn { background: #3b82f6; color: white; box-shadow: 0 5px 0 #1d4ed8; }
+        #combo-text { position: absolute; top: 15%; color: #facc15; font-size: 40px; font-weight: 900; opacity: 0; transition: 0.3s; pointer-events: none; }
     </style>
 </head>
 <body>
     <div id="header">
-        <div style="color:#64748b">BEST <span id="best" style="color:white">0</span></div>
-        <div style="color:#2dd4bf">SCORE <span id="score" style="color:white">0</span></div>
+        <div style="color:#64748b">BEST: <span id="best" style="color:white">0</span></div>
+        <div style="color:#2dd4bf">SCORE: <span id="score" style="color:white">0</span></div>
     </div>
+    
+    <div id="audio-controls" onclick="toggleMusic()">🎵</div>
+    <div id="combo-text">COMBO x2</div>
+    
     <canvas id="gameCanvas"></canvas>
+    
     <div id="overlay">
-        <h1 style="color:#facc15; font-size: 42px;">GAME OVER</h1>
-        <button id="revive-btn" class="btn" onclick="revivePlayer()">REVIVE (ADS)</button>
-        <button id="restart-btn" class="btn" onclick="resetGame()">RESTART</button>
+        <h1 style="color:#ef4444; font-size: 48px; margin: 0;">FAILED!</h1>
+        <p id="final-score" style="font-size: 24px;">Score: 0</p>
+        <button id="revive-btn" class="btn" onclick="showRewardAd()">WATCH AD TO REVIVE</button>
+        <button id="restart-btn" class="btn" onclick="resetGame()">RESTART NEW GAME</button>
     </div>
 
     <script>
+        // --- AUDIO ENGINE ---
+        // Using high-quality royalty-free placeholder links
+        const bgMusic = new Audio('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-17.mp3');
+        bgMusic.loop = true;
+        bgMusic.volume = 0.4;
+
+        const clearSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+
+        let musicPlaying = false;
+        function toggleMusic() {
+            if (!musicPlaying) {
+                bgMusic.play().catch(() => console.log("User must interact first"));
+                musicPlaying = true;
+                document.getElementById('audio-controls').innerText = "🔊";
+            } else {
+                bgMusic.pause();
+                musicPlaying = false;
+                document.getElementById('audio-controls').innerText = "🔇";
+            }
+        }
+
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), overlay = document.getElementById('overlay');
+        const comboEl = document.getElementById('combo-text');
 
-        let score = 0, bestScore = localStorage.getItem('bbProBest') || 0;
+        let score = 0, bestScore = localStorage.getItem('bbEliteBest') || 0;
+        let comboCount = 0;
         bestEl.innerText = bestScore;
 
         const gridRes = 8;
         let cellSize, boardSize, boardX;
         let board = Array(gridRes).fill().map(() => Array(gridRes).fill(0));
+        let particles = [];
 
         const COLORS = { 1: '#0ea5e9', 2: '#f43f5e', 3: '#10b981', 4: '#f59e0b', 5: '#a855f7', empty: '#1e293b' };
         const SHAPES = [
             { map: [[1,1],[1,1]], type: 1 }, { map: [[1,1,1,1]], type: 2 },
             { map: [[1,1,1],[0,1,0]], type: 3 }, { map: [[1,1,1]], type: 4 },
-            { map: [[1,0],[1,1],[0,1]], type: 5 }, { map: [[1,1,1],[1,0,0]], type: 2 }
+            { map: [[1,1,0],[0,1,1]], type: 5 }
         ];
 
         let dock = [], activeP = null, dragX = 0, dragY = 0;
 
         function init() {
-            boardSize = Math.min(window.innerWidth - 30, 400);
+            boardSize = Math.min(window.innerWidth - 30, 420);
             cellSize = boardSize / gridRes;
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             boardX = (canvas.width - boardSize) / 2;
             spawnDock();
             requestAnimationFrame(gameLoop);
+        }
+
+        function createParticles(x, y, color) {
+            for(let i=0; i<8; i++) {
+                particles.push({
+                    x, y, color,
+                    vx: (Math.random()-0.5)*10,
+                    vy: (Math.random()-0.5)*10,
+                    life: 1.0
+                });
+            }
         }
 
         function spawnDock() {
@@ -67,7 +108,57 @@
             if (!canMoveAnywhere()) showGameOver();
         }
 
+        function showRewardAd() {
+            alert("Playing Reward Ad... (ca-app-pub-9862002985603972/2583481675)");
+            revivePlayer();
+        }
+
+        function revivePlayer() {
+            for(let r=2; r<6; r++) for(let c=2; c<6; c++) board[r][c] = 0;
+            overlay.style.display = 'none';
+            spawnDock();
+        }
+
+        function checkLines() {
+            let rC = [], cC = [];
+            for (let r=0; r<gridRes; r++) if (board[r].every(v => v !== 0)) rC.push(r);
+            for (let c=0; c<gridRes; c++) { if (board.every(r => r[c] !== 0)) cC.push(c); }
+            
+            if (rC.length || cC.length) {
+                comboCount++;
+                clearSound.currentTime = 0;
+                clearSound.play(); // Play the "Pop" sound
+                
+                if(comboCount > 1) {
+                    comboEl.innerText = "COMBO x" + comboCount;
+                    comboEl.style.opacity = 1;
+                    setTimeout(() => comboEl.style.opacity = 0, 800);
+                }
+
+                rC.forEach(r => {
+                    for(let c=0; c<gridRes; c++) {
+                        createParticles(boardX + c*cellSize, r*cellSize, COLORS[board[r][c]]);
+                        board[r][c] = 0;
+                    }
+                });
+                cC.forEach(c => {
+                    for(let r=0; r<gridRes; r++) {
+                        createParticles(boardX + c*cellSize, r*cellSize, COLORS[board[r][c]]);
+                        board[r][c] = 0;
+                    }
+                });
+
+                score += (rC.length + cC.length) * 100 * comboCount;
+                updateScore();
+            } else {
+                comboCount = 0;
+            }
+        }
+
         canvas.addEventListener('touchstart', e => {
+            // Start music on first touch if not playing (Browser policy)
+            if(!musicPlaying) toggleMusic();
+            
             const rect = canvas.getBoundingClientRect();
             const tx = e.touches[0].clientX - rect.left, ty = e.touches[0].clientY - rect.top;
             dock.forEach(p => {
@@ -99,47 +190,36 @@
             activeP = null;
         });
 
-        function checkLines() {
-            let rC = [], cC = [];
-            for (let r=0; r<gridRes; r++) if (board[r].every(v => v !== 0)) rC.push(r);
-            for (let c=0; c<gridRes; c++) { if (board.every(r => r[c] !== 0)) cC.push(c); }
-            
-            if (rC.length || cC.length) {
-                canvas.classList.add('shake');
-                setTimeout(() => canvas.classList.remove('shake'), 200);
-                rC.forEach(r => board[r].fill(0));
-                cC.forEach(c => board.forEach(r => r[c] = 0));
-                score += (rC.length + cC.length) * 100;
-                updateScore();
-            }
-        }
-
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // Board
             for(let r=0; r<gridRes; r++) {
                 for(let c=0; c<gridRes; c++) {
                     ctx.fillStyle = board[r][c] ? COLORS[board[r][c]] : COLORS.empty;
-                    ctx.beginPath(); ctx.roundRect(boardX + c*cellSize + 2, r*cellSize + 2, cellSize - 4, cellSize - 4, 6); ctx.fill();
+                    ctx.beginPath(); ctx.roundRect(boardX + c*cellSize+2, r*cellSize+2, cellSize-4, cellSize-4, 8); ctx.fill();
                 }
             }
-            // Ghost (Preview)
+            particles.forEach((p, i) => {
+                p.x += p.vx; p.y += p.vy; p.life -= 0.02;
+                ctx.fillStyle = p.color; ctx.globalAlpha = p.life;
+                ctx.fillRect(p.x, p.y, 10, 10);
+                if(p.life <= 0) particles.splice(i, 1);
+            });
+            ctx.globalAlpha = 1.0;
             if (activeP) {
                 const gc = Math.round((activeP.x - boardX) / cellSize), gr = Math.round(activeP.y / cellSize);
                 if (gc >= 0 && gc <= gridRes - activeP.map[0].length && gr >= 0 && gr <= gridRes - activeP.map.length) {
-                    ctx.globalAlpha = 0.3; ctx.fillStyle = COLORS[activeP.type];
+                    ctx.globalAlpha = 0.2; ctx.fillStyle = COLORS[activeP.type];
                     activeP.map.forEach((row, ri) => row.forEach((v, ci) => {
-                        if(v) { ctx.beginPath(); ctx.roundRect(boardX + (gc+ci)*cellSize + 2, (gr+ri)*cellSize + 2, cellSize - 4, cellSize - 4, 6); ctx.fill(); }
+                        if(v) { ctx.beginPath(); ctx.roundRect(boardX + (gc+ci)*cellSize+2, (gr+ri)*cellSize+2, cellSize-4, cellSize-4, 8); ctx.fill(); }
                     }));
                     ctx.globalAlpha = 1.0;
                 }
             }
-            // Dock & Active
             dock.forEach(p => {
                 if(!p.active || p === activeP) return;
                 ctx.fillStyle = COLORS[p.type];
                 const s = cellSize * 0.6;
-                p.map.forEach((row, ri) => row.forEach((v, ci) => { if(v) { ctx.beginPath(); ctx.roundRect(p.x+ci*s, p.y+ri*s, s-2, s-2, 4); ctx.fill(); } }));
+                p.map.forEach((row, ri) => row.forEach((v, ci) => { if(v) { ctx.beginPath(); ctx.roundRect(p.x+ci*s, p.y+ri*s, s-2, s-2, 6); ctx.fill(); } }));
             });
             if (activeP) {
                 ctx.fillStyle = COLORS[activeP.type];
@@ -149,10 +229,9 @@
 
         function canPlace(map, r, c) { return map.every((row, ri) => row.every((v, ci) => { let nr = r+ri, nc = c+ci; return !v || (nr>=0 && nr<gridRes && nc>=0 && nc<gridRes && !board[nr][nc]); })); }
         function canMoveAnywhere() { return dock.some(p => { if (!p.active) return false; for (let r=0; r<gridRes; r++) for (let c=0; c<gridRes; c++) if (canPlace(p.map, r, c)) return true; return false; }); }
-        function showGameOver() { overlay.style.display = 'flex'; }
-        function revivePlayer() { alert("Playing Ad..."); for(let r=2; r<6; r++) for(let c=2; c<6; c++) board[r][c] = 0; overlay.style.display = 'none'; spawnDock(); }
+        function showGameOver() { document.getElementById('final-score').innerText = "Score: " + score; overlay.style.display = 'flex'; }
         function resetGame() { location.reload(); }
-        function updateScore() { scoreEl.innerText = score; if(score > bestScore) { bestScore = score; bestEl.innerText = score; localStorage.setItem('bbProBest', score); } }
+        function updateScore() { scoreEl.innerText = score; if(score > bestScore) { bestScore = score; bestEl.innerText = score; localStorage.setItem('bbEliteBest', score); } }
         function gameLoop() { draw(); requestAnimationFrame(gameLoop); }
         init();
     </script>
