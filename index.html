@@ -3,41 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Block Blast Clone Pro</title>
+    <title>Block Blast Clone</title>
     <style>
         body { background: #0b1426; color: white; font-family: 'Arial Black', sans-serif; margin: 0; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; }
-        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 22px; text-shadow: 2px 2px #000; }
-        canvas { background: #152035; border-radius: 12px; touch-action: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; text-align: center; }
-        .btn { width: 260px; padding: 18px; margin: 10px; border: none; border-radius: 50px; font-size: 20px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
-        #revive-btn { background: #22c55e; color: white; box-shadow: 0 5px 0 #166534; }
-        #restart-btn { background: #ef4444; color: white; box-shadow: 0 5px 0 #991b1b; }
-        #cancel-link { margin-top: 20px; color: #94a3b8; text-decoration: underline; font-size: 14px; }
+        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 24px; }
+        canvas { background: #152035; border-radius: 12px; touch-action: none; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+        .btn { width: 240px; padding: 18px; margin: 10px; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        #revive-btn { background: #22c55e; color: white; }
+        #restart-btn { background: #475569; color: white; }
     </style>
 </head>
 <body>
     <div id="header">
-        <div style="color: #94a3b8">BEST: <span id="best" style="color:white">0</span></div>
-        <div style="color: #40e0d0">SCORE: <span id="score" style="color:white">0</span></div>
+        <div style="color:#94a3b8">BEST: <span id="best" style="color:white">0</span></div>
+        <div style="color:#40e0d0">SCORE: <span id="score" style="color:white">0</span></div>
     </div>
     <canvas id="gameCanvas"></canvas>
     
     <div id="overlay">
-        <h1 style="font-size: 45px; color: #facc15; margin: 0;">FAILED!</h1>
-        <div id="final-score" style="font-size: 24px; margin-bottom: 30px;">Score: 0</div>
-        <button id="revive-btn" class="btn" onclick="revivePlayer()">REVIVE (ADS)</button>
-        <button id="restart-btn" class="btn" onclick="resetGame()">TRY AGAIN</button>
-        <div id="cancel-link" onclick="resetGame()">Cancel & Restart</div>
+        <h1 style="color:#ffcc00; font-size: 40px;">OUT OF SPACE</h1>
+        <button id="revive-btn" class="btn" onclick="revivePlayer()">REVIVE (WATCH AD)</button>
+        <button id="restart-btn" class="btn" onclick="resetGame()">NO THANKS, RESTART</button>
     </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const scoreEl = document.getElementById('score');
-        const bestEl = document.getElementById('best');
-        const overlay = document.getElementById('overlay');
+        const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), overlay = document.getElementById('overlay');
 
-        let score = 0, bestScore = localStorage.getItem('bbCloneBest') || 0;
+        let score = 0, bestScore = localStorage.getItem('bbBest') || 0;
         bestEl.innerText = bestScore;
 
         const gridRes = 8;
@@ -50,13 +45,13 @@
             { map: [[1,1,1,1]], type: 2 },
             { map: [[1,1,1],[0,1,0]], type: 3 },
             { map: [[1,1,1]], type: 4 },
-            { map: [[1,1,0],[0,1,1]], type: 5 }
+            { map: [[1,0],[1,0],[1,1]], type: 5 }
         ];
 
-        let dock = [], activeP = null, offsetX = 0, offsetY = 0;
+        let dock = [], activeP = null, dragX = 0, dragY = 0;
 
         function init() {
-            boardSize = Math.min(window.innerWidth - 30, 420);
+            boardSize = Math.min(window.innerWidth - 30, 400);
             cellSize = boardSize / gridRes;
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -68,34 +63,68 @@
         function spawnDock() {
             dock = [0,1,2].map(i => {
                 let s = SHAPES[Math.floor(Math.random() * SHAPES.length)];
-                return { ...s, x: (canvas.width/4)*(i+1) - 40, y: boardSize + 120, ox: (canvas.width/4)*(i+1) - 40, oy: boardSize + 120, active: true };
+                return { ...s, x: (canvas.width/4)*(i+1) - 40, y: boardSize + 110, ox: (canvas.width/4)*(i+1) - 40, oy: boardSize + 110, active: true };
             });
             if (!canMoveAnywhere()) showGameOver();
         }
 
-        canvas.addEventListener('touchstart', e => {
-            const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
-            const tx = touch.clientX - rect.left;
-            const ty = touch.clientY - rect.top;
+        // --- THE ENGINE FIX: 100% RELIABLE CLEARING ---
+        function checkLines() {
+            let rowsToClear = [];
+            let colsToClear = [];
 
+            // 1. Identify full rows
+            for (let r = 0; r < gridRes; r++) {
+                if (board[r].every(cell => cell !== 0)) {
+                    rowsToClear.push(r);
+                }
+            }
+
+            // 2. Identify full columns
+            for (let c = 0; c < gridRes; c++) {
+                let isColFull = true;
+                for (let r = 0; r < gridRes; r++) {
+                    if (board[r][c] === 0) {
+                        isColFull = false;
+                        break;
+                    }
+                }
+                if (isColFull) colsToClear.push(c);
+            }
+
+            // 3. Clear them
+            rowsToClear.forEach(r => {
+                for (let c = 0; r < gridRes, c < gridRes; c++) board[r][c] = 0;
+            });
+            colsToClear.forEach(c => {
+                for (let r = 0; r < gridRes; r++) board[r][c] = 0;
+            });
+
+            // 4. Update Score
+            if (rowsToClear.length > 0 || colsToClear.length > 0) {
+                let combo = rowsToClear.length + colsToClear.length;
+                score += (combo * 100) * combo; // Bonus for multi-line clears
+                updateScore();
+            }
+        }
+
+        canvas.addEventListener('touchstart', e => {
+            const rect = canvas.getBoundingClientRect();
+            const tx = e.touches[0].clientX - rect.left;
+            const ty = e.touches[0].clientY - rect.top;
             dock.forEach(p => {
-                if(p.active && tx > p.x - 30 && tx < p.x + 90 && ty > p.y - 30 && ty < p.y + 90) {
-                    activeP = p;
-                    // FIX: Offset Y by 60px so the block is visible ABOVE the thumb
-                    offsetX = tx - p.x;
-                    offsetY = (ty - p.y) + 60; 
+                if(p.active && tx > p.x-40 && tx < p.x+80 && ty > p.y-40 && ty < p.y+80) {
+                    activeP = p; dragX = tx - p.x; dragY = ty - p.y;
                 }
             });
-        }, {passive: false});
+        });
 
         canvas.addEventListener('touchmove', e => {
             if(!activeP) return;
             e.preventDefault();
-            const touch = e.touches[0];
             const rect = canvas.getBoundingClientRect();
-            activeP.x = (touch.clientX - rect.left) - offsetX;
-            activeP.y = (touch.clientY - rect.top) - offsetY;
+            activeP.x = (e.touches[0].clientX - rect.left) - dragX;
+            activeP.y = (e.touches[0].clientY - rect.top) - dragY;
         }, {passive: false});
 
         canvas.addEventListener('touchend', () => {
@@ -104,10 +133,17 @@
             const gr = Math.round(activeP.y / cellSize);
             
             if(canPlace(activeP.map, gr, gc)) {
-                place(activeP.map, gr, gc, activeP.type);
+                // Place into board
+                activeP.map.forEach((row, ri) => row.forEach((v, ci) => { 
+                    if(v) board[gr+ri][gc+ci] = activeP.type; 
+                }));
+                
                 activeP.active = false;
+                score += 10;
+                
+                checkLines(); // Run the clear engine immediately after placement
+                
                 if(dock.every(d => !d.active)) spawnDock();
-                checkLines();
                 if (!canMoveAnywhere()) showGameOver();
             } else {
                 activeP.x = activeP.ox; activeP.y = activeP.oy;
@@ -115,18 +151,26 @@
             activeP = null;
         });
 
+        function canPlace(map, r, c) {
+            return map.every((row, ri) => row.every((v, ci) => {
+                if(!v) return true;
+                let nr = r + ri, nc = c + ci;
+                return nr>=0 && nr<gridRes && nc>=0 && nc<gridRes && !board[nr][nc];
+            }));
+        }
+
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // Draw Main Grid
+            // Draw Grid
             for(let r=0; r<gridRes; r++) {
                 for(let c=0; c<gridRes; c++) {
                     ctx.fillStyle = board[r][c] ? COLORS[board[r][c]] : COLORS.empty;
                     ctx.beginPath();
-                    ctx.roundRect(boardX + c*cellSize + 2, r*cellSize + 2, cellSize - 4, cellSize - 4, 6);
+                    ctx.roundRect(boardX + c*cellSize + 2, r*cellSize + 2, cellSize - 4, cellSize - 4, 8);
                     ctx.fill();
                 }
             }
-            // Draw Dock (Small preview)
+            // Draw Dock
             dock.forEach(p => {
                 if(!p.active || p === activeP) return;
                 ctx.fillStyle = COLORS[p.type];
@@ -139,9 +183,8 @@
                     }
                 }));
             });
-            // Draw Dragging Piece (Full Size + High Visibility)
+            // Draw Dragging
             if (activeP) {
-                ctx.shadowBlur = 15; ctx.shadowColor = 'rgba(0,0,0,0.5)';
                 ctx.fillStyle = COLORS[activeP.type];
                 activeP.map.forEach((row, ri) => row.forEach((v, ci) => {
                     if(v) {
@@ -150,30 +193,7 @@
                         ctx.fill();
                     }
                 }));
-                ctx.shadowBlur = 0;
             }
-        }
-
-        function canPlace(map, r, c) {
-            return map.every((row, ri) => row.every((v, ci) => {
-                if(!v) return true;
-                let nr = r + ri, nc = c + ci;
-                return nr>=0 && nr<gridRes && nc>=0 && nc<gridRes && !board[nr][nc];
-            }));
-        }
-
-        function place(map, r, c, type) {
-            map.forEach((row, ri) => row.forEach((v, ci) => { if(v) board[r+ri][c+ci] = type; }));
-            score += 10; updateScore();
-        }
-
-        function checkLines() {
-            let rC = [], cC = [];
-            for(let r=0; r<gridRes; r++) if(board[r].every(v => v !== 0)) rC.push(r);
-            for(let c=0; c<gridRes; c++) if(board.every(r => r[c] !== 0)) cClear.push(c);
-            rC.forEach(r => board[r] = Array(gridRes).fill(0));
-            cC.forEach(c => board.forEach(r => r[c] = 0));
-            if(rC.length || cC.length) { score += (rC.length + cC.length) * 80; updateScore(); }
         }
 
         function canMoveAnywhere() {
@@ -186,33 +206,16 @@
             });
         }
 
-        function showGameOver() {
-            document.getElementById('final-score').innerText = "Total Score: " + score;
-            overlay.style.display = 'flex';
-        }
-
-        function revivePlayer() {
-            alert("Ad Logic: ca-app-pub-9862002985603972/2583481675");
+        function showGameOver() { overlay.style.display = 'flex'; }
+        function revivePlayer() { 
             for(let r=2; r<6; r++) for(let c=2; c<6; c++) board[r][c] = 0;
-            overlay.style.display = 'none';
-            spawnDock();
+            overlay.style.display = 'none'; spawnDock(); 
         }
-
-        function resetGame() {
-            board = Array(gridRes).fill().map(() => Array(gridRes).fill(0));
-            score = 0; scoreEl.innerText = 0;
-            overlay.style.display = 'none';
-            spawnDock();
+        function resetGame() { location.reload(); }
+        function updateScore() { 
+            scoreEl.innerText = score; 
+            if(score > bestScore) { bestScore = score; bestEl.innerText = score; localStorage.setItem('bbBest', score); } 
         }
-
-        function updateScore() {
-            scoreEl.innerText = score;
-            if(score > bestScore) {
-                bestScore = score; bestEl.innerText = bestScore;
-                localStorage.setItem('bbCloneBest', bestScore);
-            }
-        }
-
         function gameLoop() { draw(); requestAnimationFrame(gameLoop); }
         init();
     </script>
