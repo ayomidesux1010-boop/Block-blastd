@@ -3,39 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Block Blast Real Pro</title>
+    <title>Block Blast Final</title>
     <style>
-        :root { --bg: #050a14; --cell: #1a2233; --neon: #00f2ff; }
-        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; }
-        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 22px; font-weight: bold; color: var(--neon); text-shadow: 0 0 10px var(--neon); }
-        canvas { background: var(--cell); border-radius: 12px; touch-action: none; box-shadow: 0 0 25px rgba(0,0,0,0.6); }
-        #ad-bar { position: fixed; bottom: 0; width: 100%; height: 50px; background: #000; color: #555; font-size: 10px; display: flex; align-items: center; justify-content: center; border-top: 1px solid #222; }
+        body { background: #0b1426; color: white; font-family: Arial, sans-serif; margin: 0; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; }
+        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 24px; font-weight: bold; }
+        .score-text { color: #40e0d0; }
+        canvas { background: #152035; border-radius: 8px; touch-action: none; }
+        
+        /* Game Over & Revive Overlay */
+        #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+        #overlay h1 { color: #ff4d4d; font-size: 36px; margin-bottom: 10px; }
+        .btn { width: 240px; padding: 16px; margin: 8px; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        #revive-btn { background: #22c55e; color: white; box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4); }
+        #restart-btn { background: #475569; color: #cbd5e1; font-size: 14px; margin-top: 15px; }
+        
+        #ad-banner { position: fixed; bottom: 0; width: 100%; height: 50px; background: #000; color: #444; font-size: 10px; display: flex; align-items: center; justify-content: center; }
     </style>
 </head>
 <body>
     <div id="header">
         <div>BEST: <span id="best">0</span></div>
-        <div>SCORE: <span id="score">0</span></div>
+        <div class="score-text">SCORE: <span id="score">0</span></div>
     </div>
     <canvas id="gameCanvas"></canvas>
-    <div id="ad-bar">BANNER ID: ca-app-pub-9862002985603972/9278024171</div>
+    
+    <div id="overlay">
+        <h1 id="status-text">OUT OF SPACE!</h1>
+        <div id="final-score" style="font-size: 22px; margin-bottom: 25px;">Score: 0</div>
+        <button id="revive-btn" class="btn" onclick="revivePlayer()">REVIVE (WATCH AD)</button>
+        <button id="restart-btn" class="btn" onclick="resetGame()">NO THANKS, RESTART</button>
+    </div>
+
+    <div id="ad-banner">Banner ID: ca-app-pub-9862002985603972/9278024171</div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreEl = document.getElementById('score');
         const bestEl = document.getElementById('best');
+        const overlay = document.getElementById('overlay');
 
-        let score = 0;
-        let bestScore = localStorage.getItem('blockBlastBest') || 0;
+        let score = 0, bestScore = localStorage.getItem('bbFinalBest') || 0;
         bestEl.innerText = bestScore;
 
         const gridRes = 8;
         let cellSize, boardSize, boardX;
         let board = Array(gridRes).fill().map(() => Array(gridRes).fill(0));
 
+        const COLORS = { 1: '#00d4ff', 2: '#ff2d55', 3: '#4cd964', 4: '#ffcc00', 5: '#af52de', empty: '#1e2d4a' };
+        const SHAPES = [
+            { map: [[1,1],[1,1]], type: 1 },
+            { map: [[1,1,1,1]], type: 2 },
+            { map: [[1,1,1],[0,1,0]], type: 3 },
+            { map: [[1,1,1]], type: 4 },
+            { map: [[1,0],[1,0],[1,1]], type: 5 }
+        ];
+
+        let dock = [], activeP = null, dragX = 0, dragY = 0;
+
         function init() {
-            boardSize = Math.min(window.innerWidth - 30, 420);
+            boardSize = Math.min(window.innerWidth - 30, 400);
             cellSize = boardSize / gridRes;
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
@@ -44,77 +71,43 @@
             requestAnimationFrame(gameLoop);
         }
 
-        const SHAPES = [
-            { map: [[1,1],[1,1]], color: '#00f2ff' },
-            { map: [[1,1,1,1]], color: '#a855f7' },
-            { map: [[1,1,1],[0,1,0]], color: '#ec4899' },
-            { map: [[1,1,0],[0,1,1]], color: '#22c55e' }
-        ];
-
-        let dock = [];
-        let activeP = null;
-        let dragX = 0, dragY = 0;
-
         function spawnDock() {
             dock = [0,1,2].map(i => {
                 let s = SHAPES[Math.floor(Math.random() * SHAPES.length)];
-                return { ...s, x: (canvas.width/4)*(i+1) - 30, y: boardSize + 80, ox: (canvas.width/4)*(i+1) - 30, oy: boardSize + 80, active: true };
+                return { ...s, x: (canvas.width/4)*(i+1) - 40, y: boardSize + 100, ox: (canvas.width/4)*(i+1) - 40, oy: boardSize + 100, active: true };
             });
+            if (!canMoveAnywhere()) showGameOver();
         }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw Grid
             for(let r=0; r<gridRes; r++) {
                 for(let c=0; c<gridRes; c++) {
-                    ctx.fillStyle = board[r][c] || '#0f172a';
-                    ctx.beginPath();
-                    ctx.roundRect(boardX + c*cellSize + 2, r*cellSize + 2, cellSize - 4, cellSize - 4, 8);
-                    ctx.fill();
+                    ctx.fillStyle = board[r][c] ? COLORS[board[r][c]] : COLORS.empty;
+                    ctx.fillRect(boardX + c*cellSize + 2, r*cellSize + 2, cellSize - 4, cellSize - 4);
                 }
             }
-
-            // Ghost Preview
-            if (activeP) {
-                const gc = Math.round((activeP.x - boardX) / cellSize);
-                const gr = Math.round(activeP.y / cellSize);
-                if (canPlace(activeP.map, gr, gc)) {
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-                    activeP.map.forEach((row, ri) => row.forEach((v, ci) => {
-                        if(v) ctx.fillRect(boardX + (gc+ci)*cellSize + 4, (gr+ri)*cellSize + 4, cellSize-8, cellSize-8);
-                    }));
-                }
-            }
-
-            // Dock Pieces
             dock.forEach(p => {
                 if(!p.active || p === activeP) return;
-                ctx.fillStyle = p.color;
-                const s = cellSize * 0.55;
+                ctx.fillStyle = COLORS[p.type];
+                const s = cellSize * 0.6;
                 p.map.forEach((row, ri) => row.forEach((v, ci) => {
-                    if(v) { ctx.beginPath(); ctx.roundRect(p.x + ci*s, p.y + ri*s, s-2, s-2, 6); ctx.fill(); }
+                    if(v) ctx.fillRect(p.x + ci*s, p.y + ri*s, s-2, s-2);
                 }));
             });
-
-            // The Water Flow Drag
             if (activeP) {
-                ctx.shadowBlur = 15; ctx.shadowColor = activeP.color;
-                ctx.fillStyle = activeP.color;
+                ctx.fillStyle = COLORS[activeP.type];
                 activeP.map.forEach((row, ri) => row.forEach((v, ci) => {
-                    if(v) { ctx.beginPath(); ctx.roundRect(activeP.x + ci*cellSize, activeP.y + ri*cellSize, cellSize-2, cellSize-2, 8); ctx.fill(); }
+                    if(v) ctx.fillRect(activeP.x + ci*cellSize, activeP.y + ri*cellSize, cellSize-2, cellSize-2);
                 }));
-                ctx.shadowBlur = 0;
             }
         }
 
         canvas.addEventListener('touchstart', e => {
-            const tx = e.touches[0].clientX;
-            const ty = e.touches[0].clientY;
+            const tx = e.touches[0].clientX, ty = e.touches[0].clientY;
             dock.forEach(p => {
-                if(p.active && tx > p.x - 30 && tx < p.x + 90 && ty > p.y - 30 && ty < p.y + 90) {
-                    activeP = p;
-                    dragX = tx - p.x; dragY = ty - p.y;
+                if(p.active && tx > p.x-20 && tx < p.x+80 && ty > p.y-20 && ty < p.y+80) {
+                    activeP = p; dragX = tx - p.x; dragY = ty - p.y;
                 }
             });
         });
@@ -122,23 +115,19 @@
         canvas.addEventListener('touchmove', e => {
             if(!activeP) return;
             e.preventDefault();
-            activeP.x = e.touches[0].clientX - dragX;
-            activeP.y = e.touches[0].clientY - dragY;
+            activeP.x = e.touches[0].clientX - dragX; activeP.y = e.touches[0].clientY - dragY;
         }, {passive: false});
 
         canvas.addEventListener('touchend', () => {
             if(!activeP) return;
-            const gc = Math.round((activeP.x - boardX) / cellSize);
-            const gr = Math.round(activeP.y / cellSize);
-            
+            const gc = Math.round((activeP.x - boardX) / cellSize), gr = Math.round(activeP.y / cellSize);
             if(canPlace(activeP.map, gr, gc)) {
-                place(activeP.map, gr, gc, activeP.color);
+                place(activeP.map, gr, gc, activeP.type);
                 activeP.active = false;
                 if(dock.every(d => !d.active)) spawnDock();
                 checkLines();
-            } else {
-                activeP.x = activeP.ox; activeP.y = activeP.oy;
-            }
+                if (!canMoveAnywhere()) showGameOver();
+            } else { activeP.x = activeP.ox; activeP.y = activeP.oy; }
             activeP = null;
         });
 
@@ -150,31 +139,56 @@
             }));
         }
 
-        function place(map, r, c, col) {
-            map.forEach((row, ri) => row.forEach((v, ci) => {
-                if(v) board[r+ri][c+ci] = col;
-            }));
-            score += 10;
-            scoreEl.innerText = score;
-            if(score > bestScore) {
-                bestScore = score;
-                bestEl.innerText = bestScore;
-                localStorage.setItem('blockBlastBest', bestScore);
-            }
+        function place(map, r, c, type) {
+            map.forEach((row, ri) => row.forEach((v, ci) => { if(v) board[r+ri][c+ci] = type; }));
+            score += 10; updateScore();
         }
 
         function checkLines() {
-            let lines = 0;
-            let rowsToClear = [], colsToClear = [];
-            for(let r=0; r<gridRes; r++) if(board[r].every(v => v !== 0)) rowsToClear.push(r);
-            for(let c=0; c<gridRes; c++) if(board.every(r => r[c] !== 0)) colsToClear.push(c);
-            
-            rowsToClear.forEach(r => board[r] = Array(gridRes).fill(0));
-            colsToClear.forEach(c => board.forEach(r => r[c] = 0));
-            
-            if(rowsToClear.length > 0 || colsToClear.length > 0) {
-                score += (rowsToClear.length + colsToClear.length) * 50;
-                scoreEl.innerText = score;
+            let rClear = [], cClear = [];
+            for(let r=0; r<gridRes; r++) if(board[r].every(v => v !== 0)) rClear.push(r);
+            for(let c=0; c<gridRes; c++) if(board.every(r => r[c] !== 0)) cClear.push(c);
+            rClear.forEach(r => board[r] = Array(gridRes).fill(0));
+            cClear.forEach(c => board.forEach(r => r[c] = 0));
+            if(rClear.length || cClear.length) { score += (rClear.length + cClear.length) * 50; updateScore(); }
+        }
+
+        function canMoveAnywhere() {
+            return dock.some(p => {
+                if (!p.active) return false;
+                for (let r=0; r<gridRes; r++) {
+                    for (let c=0; c<gridRes; c++) {
+                        if (canPlace(p.map, r, c)) return true;
+                    }
+                }
+                return false;
+            });
+        }
+
+        function showGameOver() {
+            document.getElementById('final-score').innerText = "Final Score: " + score;
+            overlay.style.display = 'flex';
+        }
+
+        function revivePlayer() {
+            alert("Playing Ad: ca-app-pub-9862002985603972/2583481675");
+            for(let r=2; r<6; r++) for(let c=2; c<6; c++) board[r][c] = 0;
+            overlay.style.display = 'none';
+            spawnDock();
+        }
+
+        function resetGame() {
+            board = Array(gridRes).fill().map(() => Array(gridRes).fill(0));
+            score = 0; scoreEl.innerText = 0;
+            overlay.style.display = 'none';
+            spawnDock();
+        }
+
+        function updateScore() {
+            scoreEl.innerText = score;
+            if(score > bestScore) {
+                bestScore = score; bestEl.innerText = bestScore;
+                localStorage.setItem('bbFinalBest', bestScore);
             }
         }
 
@@ -183,3 +197,4 @@
     </script>
 </body>
 </html>
+
