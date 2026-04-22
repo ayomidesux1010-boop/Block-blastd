@@ -3,28 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Block Blast Clone</title>
+    <title>Block Blast Pro</title>
     <style>
-        body { background: #0b1426; color: white; font-family: 'Arial Black', sans-serif; margin: 0; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; }
-        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 24px; }
-        canvas { background: #152035; border-radius: 12px; touch-action: none; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        body { background: #080f1a; color: white; font-family: 'Segoe UI', sans-serif; margin: 0; overflow: hidden; touch-action: none; display: flex; flex-direction: column; align-items: center; }
+        #header { width: 100%; display: flex; justify-content: space-around; padding: 20px 0; font-size: 24px; font-weight: 900; letter-spacing: 1px; }
+        canvas { background: #111b2d; border-radius: 15px; touch-action: none; transition: transform 0.1s; }
         #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
-        .btn { width: 240px; padding: 18px; margin: 10px; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; cursor: pointer; text-transform: uppercase; }
+        .btn { width: 260px; padding: 18px; margin: 10px; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 rgba(0,0,0,0.3); }
         #revive-btn { background: #22c55e; color: white; }
-        #restart-btn { background: #475569; color: white; }
+        #restart-btn { background: #3b82f6; color: white; }
+        .shake { animation: shake 0.2s; }
+        @keyframes shake { 0% { transform: translate(2px, 2px); } 50% { transform: translate(-2px, -2px); } 100% { transform: translate(0); } }
     </style>
 </head>
 <body>
     <div id="header">
-        <div style="color:#94a3b8">BEST: <span id="best" style="color:white">0</span></div>
-        <div style="color:#40e0d0">SCORE: <span id="score" style="color:white">0</span></div>
+        <div style="color:#64748b">BEST <span id="best" style="color:white">0</span></div>
+        <div style="color:#2dd4bf">SCORE <span id="score" style="color:white">0</span></div>
     </div>
     <canvas id="gameCanvas"></canvas>
-    
     <div id="overlay">
-        <h1 style="color:#ffcc00; font-size: 40px;">OUT OF SPACE</h1>
-        <button id="revive-btn" class="btn" onclick="revivePlayer()">REVIVE (WATCH AD)</button>
-        <button id="restart-btn" class="btn" onclick="resetGame()">NO THANKS, RESTART</button>
+        <h1 style="color:#facc15; font-size: 42px;">GAME OVER</h1>
+        <button id="revive-btn" class="btn" onclick="revivePlayer()">REVIVE (ADS)</button>
+        <button id="restart-btn" class="btn" onclick="resetGame()">RESTART</button>
     </div>
 
     <script>
@@ -32,20 +33,18 @@
         const ctx = canvas.getContext('2d');
         const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), overlay = document.getElementById('overlay');
 
-        let score = 0, bestScore = localStorage.getItem('bbBest') || 0;
+        let score = 0, bestScore = localStorage.getItem('bbProBest') || 0;
         bestEl.innerText = bestScore;
 
         const gridRes = 8;
         let cellSize, boardSize, boardX;
         let board = Array(gridRes).fill().map(() => Array(gridRes).fill(0));
 
-        const COLORS = { 1: '#00d4ff', 2: '#ff2d55', 3: '#4cd964', 4: '#ffcc00', 5: '#af52de', empty: '#1e2d4a' };
+        const COLORS = { 1: '#0ea5e9', 2: '#f43f5e', 3: '#10b981', 4: '#f59e0b', 5: '#a855f7', empty: '#1e293b' };
         const SHAPES = [
-            { map: [[1,1],[1,1]], type: 1 },
-            { map: [[1,1,1,1]], type: 2 },
-            { map: [[1,1,1],[0,1,0]], type: 3 },
-            { map: [[1,1,1]], type: 4 },
-            { map: [[1,0],[1,0],[1,1]], type: 5 }
+            { map: [[1,1],[1,1]], type: 1 }, { map: [[1,1,1,1]], type: 2 },
+            { map: [[1,1,1],[0,1,0]], type: 3 }, { map: [[1,1,1]], type: 4 },
+            { map: [[1,0],[1,1],[0,1]], type: 5 }, { map: [[1,1,1],[1,0,0]], type: 2 }
         ];
 
         let dock = [], activeP = null, dragX = 0, dragY = 0;
@@ -63,55 +62,14 @@
         function spawnDock() {
             dock = [0,1,2].map(i => {
                 let s = SHAPES[Math.floor(Math.random() * SHAPES.length)];
-                return { ...s, x: (canvas.width/4)*(i+1) - 40, y: boardSize + 110, ox: (canvas.width/4)*(i+1) - 40, oy: boardSize + 110, active: true };
+                return { ...s, x: (canvas.width/4)*(i+1) - 40, y: boardSize + 120, ox: (canvas.width/4)*(i+1) - 40, oy: boardSize + 120, active: true };
             });
             if (!canMoveAnywhere()) showGameOver();
         }
 
-        // --- THE ENGINE FIX: 100% RELIABLE CLEARING ---
-        function checkLines() {
-            let rowsToClear = [];
-            let colsToClear = [];
-
-            // 1. Identify full rows
-            for (let r = 0; r < gridRes; r++) {
-                if (board[r].every(cell => cell !== 0)) {
-                    rowsToClear.push(r);
-                }
-            }
-
-            // 2. Identify full columns
-            for (let c = 0; c < gridRes; c++) {
-                let isColFull = true;
-                for (let r = 0; r < gridRes; r++) {
-                    if (board[r][c] === 0) {
-                        isColFull = false;
-                        break;
-                    }
-                }
-                if (isColFull) colsToClear.push(c);
-            }
-
-            // 3. Clear them
-            rowsToClear.forEach(r => {
-                for (let c = 0; r < gridRes, c < gridRes; c++) board[r][c] = 0;
-            });
-            colsToClear.forEach(c => {
-                for (let r = 0; r < gridRes; r++) board[r][c] = 0;
-            });
-
-            // 4. Update Score
-            if (rowsToClear.length > 0 || colsToClear.length > 0) {
-                let combo = rowsToClear.length + colsToClear.length;
-                score += (combo * 100) * combo; // Bonus for multi-line clears
-                updateScore();
-            }
-        }
-
         canvas.addEventListener('touchstart', e => {
             const rect = canvas.getBoundingClientRect();
-            const tx = e.touches[0].clientX - rect.left;
-            const ty = e.touches[0].clientY - rect.top;
+            const tx = e.touches[0].clientX - rect.left, ty = e.touches[0].clientY - rect.top;
             dock.forEach(p => {
                 if(p.active && tx > p.x-40 && tx < p.x+80 && ty > p.y-40 && ty < p.y+80) {
                     activeP = p; dragX = tx - p.x; dragY = ty - p.y;
@@ -129,93 +87,72 @@
 
         canvas.addEventListener('touchend', () => {
             if(!activeP) return;
-            const gc = Math.round((activeP.x - boardX) / cellSize);
-            const gr = Math.round(activeP.y / cellSize);
-            
+            const gc = Math.round((activeP.x - boardX) / cellSize), gr = Math.round(activeP.y / cellSize);
             if(canPlace(activeP.map, gr, gc)) {
-                // Place into board
-                activeP.map.forEach((row, ri) => row.forEach((v, ci) => { 
-                    if(v) board[gr+ri][gc+ci] = activeP.type; 
-                }));
-                
+                activeP.map.forEach((row, ri) => row.forEach((v, ci) => { if(v) board[gr+ri][gc+ci] = activeP.type; }));
                 activeP.active = false;
                 score += 10;
-                
-                checkLines(); // Run the clear engine immediately after placement
-                
+                checkLines();
                 if(dock.every(d => !d.active)) spawnDock();
                 if (!canMoveAnywhere()) showGameOver();
-            } else {
-                activeP.x = activeP.ox; activeP.y = activeP.oy;
-            }
+            } else { activeP.x = activeP.ox; activeP.y = activeP.oy; }
             activeP = null;
         });
 
-        function canPlace(map, r, c) {
-            return map.every((row, ri) => row.every((v, ci) => {
-                if(!v) return true;
-                let nr = r + ri, nc = c + ci;
-                return nr>=0 && nr<gridRes && nc>=0 && nc<gridRes && !board[nr][nc];
-            }));
+        function checkLines() {
+            let rC = [], cC = [];
+            for (let r=0; r<gridRes; r++) if (board[r].every(v => v !== 0)) rC.push(r);
+            for (let c=0; c<gridRes; c++) { if (board.every(r => r[c] !== 0)) cC.push(c); }
+            
+            if (rC.length || cC.length) {
+                canvas.classList.add('shake');
+                setTimeout(() => canvas.classList.remove('shake'), 200);
+                rC.forEach(r => board[r].fill(0));
+                cC.forEach(c => board.forEach(r => r[c] = 0));
+                score += (rC.length + cC.length) * 100;
+                updateScore();
+            }
         }
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // Draw Grid
+            // Board
             for(let r=0; r<gridRes; r++) {
                 for(let c=0; c<gridRes; c++) {
                     ctx.fillStyle = board[r][c] ? COLORS[board[r][c]] : COLORS.empty;
-                    ctx.beginPath();
-                    ctx.roundRect(boardX + c*cellSize + 2, r*cellSize + 2, cellSize - 4, cellSize - 4, 8);
-                    ctx.fill();
+                    ctx.beginPath(); ctx.roundRect(boardX + c*cellSize + 2, r*cellSize + 2, cellSize - 4, cellSize - 4, 6); ctx.fill();
                 }
             }
-            // Draw Dock
+            // Ghost (Preview)
+            if (activeP) {
+                const gc = Math.round((activeP.x - boardX) / cellSize), gr = Math.round(activeP.y / cellSize);
+                if (gc >= 0 && gc <= gridRes - activeP.map[0].length && gr >= 0 && gr <= gridRes - activeP.map.length) {
+                    ctx.globalAlpha = 0.3; ctx.fillStyle = COLORS[activeP.type];
+                    activeP.map.forEach((row, ri) => row.forEach((v, ci) => {
+                        if(v) { ctx.beginPath(); ctx.roundRect(boardX + (gc+ci)*cellSize + 2, (gr+ri)*cellSize + 2, cellSize - 4, cellSize - 4, 6); ctx.fill(); }
+                    }));
+                    ctx.globalAlpha = 1.0;
+                }
+            }
+            // Dock & Active
             dock.forEach(p => {
                 if(!p.active || p === activeP) return;
                 ctx.fillStyle = COLORS[p.type];
                 const s = cellSize * 0.6;
-                p.map.forEach((row, ri) => row.forEach((v, ci) => {
-                    if(v) {
-                        ctx.beginPath();
-                        ctx.roundRect(p.x + ci*s, p.y + ri*s, s-2, s-2, 4);
-                        ctx.fill();
-                    }
-                }));
+                p.map.forEach((row, ri) => row.forEach((v, ci) => { if(v) { ctx.beginPath(); ctx.roundRect(p.x+ci*s, p.y+ri*s, s-2, s-2, 4); ctx.fill(); } }));
             });
-            // Draw Dragging
             if (activeP) {
                 ctx.fillStyle = COLORS[activeP.type];
-                activeP.map.forEach((row, ri) => row.forEach((v, ci) => {
-                    if(v) {
-                        ctx.beginPath();
-                        ctx.roundRect(activeP.x + ci*cellSize, activeP.y + ri*cellSize, cellSize-2, cellSize-2, 8);
-                        ctx.fill();
-                    }
-                }));
+                activeP.map.forEach((row, ri) => row.forEach((v, ci) => { if(v) { ctx.beginPath(); ctx.roundRect(activeP.x+ci*cellSize, activeP.y+ri*cellSize, cellSize-2, cellSize-2, 8); ctx.fill(); } }));
             }
         }
 
-        function canMoveAnywhere() {
-            return dock.some(p => {
-                if (!p.active) return false;
-                for (let r=0; r<gridRes; r++) {
-                    for (let c=0; c<gridRes; c++) if (canPlace(p.map, r, c)) return true;
-                }
-                return false;
-            });
-        }
-
+        function canPlace(map, r, c) { return map.every((row, ri) => row.every((v, ci) => { let nr = r+ri, nc = c+ci; return !v || (nr>=0 && nr<gridRes && nc>=0 && nc<gridRes && !board[nr][nc]); })); }
+        function canMoveAnywhere() { return dock.some(p => { if (!p.active) return false; for (let r=0; r<gridRes; r++) for (let c=0; c<gridRes; c++) if (canPlace(p.map, r, c)) return true; return false; }); }
         function showGameOver() { overlay.style.display = 'flex'; }
-        function revivePlayer() { 
-            for(let r=2; r<6; r++) for(let c=2; c<6; c++) board[r][c] = 0;
-            overlay.style.display = 'none'; spawnDock(); 
-        }
+        function revivePlayer() { alert("Playing Ad..."); for(let r=2; r<6; r++) for(let c=2; c<6; c++) board[r][c] = 0; overlay.style.display = 'none'; spawnDock(); }
         function resetGame() { location.reload(); }
-        function updateScore() { 
-            scoreEl.innerText = score; 
-            if(score > bestScore) { bestScore = score; bestEl.innerText = score; localStorage.setItem('bbBest', score); } 
-        }
+        function updateScore() { scoreEl.innerText = score; if(score > bestScore) { bestScore = score; bestEl.innerText = score; localStorage.setItem('bbProBest', score); } }
         function gameLoop() { draw(); requestAnimationFrame(gameLoop); }
         init();
     </script>
